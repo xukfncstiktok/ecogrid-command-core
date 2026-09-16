@@ -6,6 +6,8 @@ interface Props {
   regions: RegionState[];
   selected: string;
   onSelect: (id: string) => void;
+  /** increments on every deployment — triggers a glowing vector strike */
+  strike?: { id: string; seq: number } | null;
 }
 
 interface MarkerHandle {
@@ -25,10 +27,10 @@ const toVec = (lat: number, lon: number, r: number, THREE: any) => {
   );
 };
 
-export function EarthGlobe({ regions, selected, onSelect }: Props) {
+export function EarthGlobe({ regions, selected, onSelect, strike = null }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const dataRef = useRef({ regions, selected, onSelect });
-  dataRef.current = { regions, selected, onSelect };
+  const dataRef = useRef({ regions, selected, onSelect, strike });
+  dataRef.current = { regions, selected, onSelect, strike };
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -324,6 +326,43 @@ export function EarthGlobe({ regions, selected, onSelect }: Props) {
       const colCrit = new THREE.Color(0xff5c4d);
       const colSel = new THREE.Color(0x8ef0ff);
 
+      // --- deployment vector strikes ---------------------------------------
+      const strikes: { line: any; halo: any; born: number }[] = [];
+      let lastStrikeSeq = dataRef.current.strike?.seq ?? 0;
+
+      const spawnStrike = (id: string) => {
+        const r = dataRef.current.regions.find((x) => x.id === id);
+        if (!r) return;
+        const surface = toVec(r.lat, r.lon, R * 1.02, THREE);
+        const sky = surface.clone().multiplyScalar(2.6);
+        const geo = new THREE.BufferGeometry().setFromPoints([sky, surface]);
+        const line = new THREE.Line(
+          geo,
+          new THREE.LineBasicMaterial({
+            color: 0x8ef0ff,
+            transparent: true,
+            opacity: 1,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        const halo = new THREE.Mesh(
+          new THREE.RingGeometry(0.06, 0.12, 48),
+          new THREE.MeshBasicMaterial({
+            color: 0x8ef0ff,
+            transparent: true,
+            opacity: 0.9,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        halo.position.copy(surface);
+        halo.lookAt(new THREE.Vector3(0, 0, 0));
+        world.add(line, halo);
+        strikes.push({ line, halo, born: performance.now() });
+      };
+
       let raf = 0;
       let t = 0;
       const render = () => {
@@ -357,12 +396,37 @@ export function EarthGlobe({ regions, selected, onSelect }: Props) {
           m.core.scale.setScalar(isSel ? 1.5 : 1);
         }
 
+        // spawn + animate deployment vector flashes
+        const seq = dataRef.current.strike?.seq ?? 0;
+        if (seq > lastStrikeSeq) {
+          lastStrikeSeq = seq;
+          spawnStrike(dataRef.current.strike!.id);
+        }
+        const now = performance.now();
+        for (let i = strikes.length - 1; i >= 0; i--) {
+          const s = strikes[i]!;
+          const k = (now - s.born) / 1400;
+          if (k >= 1) {
+            world.remove(s.line, s.halo);
+            s.line.geometry.dispose();
+            s.line.material.dispose();
+            s.halo.geometry.dispose();
+            s.halo.material.dispose();
+            strikes.splice(i, 1);
+            continue;
+          }
+          s.line.material.opacity = Math.max(0, 1 - k) * (0.6 + 0.4 * Math.sin(k * 40));
+          s.halo.scale.setScalar(1 + k * 3.4);
+          s.halo.material.opacity = Math.max(0, 0.9 * (1 - k));
+        }
+
         renderer.render(scene, camera);
       };
       render();
 
       cleanup = () => {
         cancelAnimationFrame(raf);
+        for (const s of strikes) world.remove(s.line, s.halo);
         ro.disconnect();
         el.removeEventListener("pointerdown", onDown);
         window.removeEventListener("pointermove", onMove);
