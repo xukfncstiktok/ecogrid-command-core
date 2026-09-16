@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { EarthGlobe } from "@/components/globe/EarthGlobe";
+import { CommandTerminal } from "@/components/mission/CommandTerminal";
 import {
   Advisory,
   BootSplash,
@@ -35,8 +36,24 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  const { state, selected, health, advisory, criticals, covered, select, deploy, toggle, reset } =
-    useMission();
+  const {
+    state,
+    selected,
+    health,
+    trend,
+    projection,
+    advisory,
+    criticals,
+    covered,
+    select,
+    deploy,
+    deployAt,
+    setAuto,
+    log,
+    clearLog,
+    toggle,
+    reset,
+  } = useMission();
 
   const status = statusOf(health);
 
@@ -51,6 +68,8 @@ function Index() {
             onToggle={toggle}
             onReset={reset}
             health={health}
+            auto={state.auto}
+            onAutoChange={setAuto}
           />
 
           <div className="grid gap-3 xl:grid-cols-[260px_minmax(0,1fr)_340px]">
@@ -69,11 +88,23 @@ function Index() {
                 <RegionList regions={state.regions} selected={state.selected} onSelect={select} />
               </Panel>
 
-              <Panel title="Biosphere trend">
-                <Sparkline data={state.history} tone="bio" />
+              <Panel
+                title="Biosphere trend"
+                right={
+                  <span
+                    className={`numeric text-[0.65rem] ${trend > 0.05 ? "text-primary" : "text-crit"}`}
+                  >
+                    {trend > 0.05 ? "▲ stabilising" : "▼ degrading"} {trend >= 0 ? "+" : ""}
+                    {trend.toFixed(2)}/t
+                  </span>
+                }
+              >
+                <Sparkline data={state.history} projection={projection} trend={trend} />
                 <div className="mt-3 flex items-center justify-between">
                   <span className="label-mono">Global integrity</span>
-                  <span className="numeric text-sm font-semibold text-foreground">
+                  <span
+                    className={`numeric text-sm font-semibold ${trend > 0.05 ? "text-primary" : "text-foreground"}`}
+                  >
                     {health.toFixed(1)}%
                   </span>
                 </div>
@@ -96,6 +127,7 @@ function Index() {
                   regions={state.regions}
                   selected={state.selected}
                   onSelect={select}
+                  strike={state.strike}
                 />
               </div>
               <div className="pointer-events-none absolute bottom-3 left-4 flex flex-wrap items-center gap-4">
@@ -185,6 +217,19 @@ function Index() {
               />
             </Panel>
           </div>
+
+          <CommandTerminal
+            regions={state.regions}
+            health={health}
+            auto={state.auto}
+            credits={state.credits}
+            criticals={criticals}
+            deployAt={deployAt}
+            setAuto={setAuto}
+            select={select}
+            log={log}
+            clearLog={clearLog}
+          />
 
           <footer className="label-mono px-1 pb-2 text-center">
             EcoGrid AI · simulated telemetry · built for planetary response drills
