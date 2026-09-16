@@ -88,12 +88,16 @@ export function MissionHeader({
   onToggle,
   onReset,
   health,
+  auto,
+  onAutoChange,
 }: {
   clock: string;
   running: boolean;
   onToggle: () => void;
   onReset: () => void;
   health: number;
+  auto: boolean;
+  onAutoChange: (v: boolean) => void;
 }) {
   const status = statusOf(health);
   return (
@@ -127,6 +131,35 @@ export function MissionHeader({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={auto}
+          onClick={() => onAutoChange(!auto)}
+          className={cn(
+            "inline-flex items-center gap-2.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-all",
+            auto
+              ? "border-primary/60 bg-primary/10 text-primary glow-bio"
+              : "border-border bg-surface-2 text-muted-foreground hover:border-primary/40 hover:text-foreground",
+          )}
+        >
+          <Cpu className={cn("size-3.5", auto && "animate-eco-pulse")} />
+          <span className="hidden sm:inline">Auto-AI command override</span>
+          <span className="sm:hidden">Auto-AI</span>
+          <span
+            className={cn(
+              "relative h-4 w-7 rounded-full transition-colors",
+              auto ? "bg-primary/70" : "bg-border",
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 size-3 rounded-full bg-background transition-all",
+                auto ? "left-3.5" : "left-0.5",
+              )}
+            />
+          </span>
+        </button>
         <button
           onClick={onToggle}
           className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary/50 hover:text-primary"
@@ -186,31 +219,41 @@ export function StatTile({
 
 export function Sparkline({
   data,
-  tone = "bio",
+  projection = [],
+  trend = 0,
 }: {
   data: { t: number; health: number }[];
-  tone?: "bio" | "signal";
+  projection?: { t: number; health: number }[];
+  trend?: number;
 }) {
   if (data.length < 2) {
     return <div className="h-16 rounded-md border border-dashed border-border/70" />;
   }
   const w = 240;
   const h = 56;
-  const vals = data.map((d) => d.health);
+  const all = [...data, ...projection];
+  const vals = all.map((d) => d.health);
   const min = Math.min(...vals) - 2;
   const max = Math.max(...vals) + 2;
-  const pts = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - ((d.health - min) / Math.max(1, max - min)) * h;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
-  });
-  const stroke = tone === "bio" ? "var(--bio)" : "var(--signal)";
+  const span = Math.max(1, max - min);
+  const total = all.length - 1;
+  const x = (i: number) => (i / Math.max(1, total)) * w;
+  const y = (v: number) => h - ((v - min) / span) * h;
+
+  const pts = data.map((d, i) => `${x(i).toFixed(1)},${y(d.health).toFixed(1)}`);
+  const projPts = projection.map(
+    (d, i) => `${x(data.length - 1 + i + 1).toFixed(1)},${y(d.health).toFixed(1)}`,
+  );
+  const rising = trend > 0.05;
+  const stroke = rising ? "var(--bio)" : "var(--crit)";
+  const join = pts.length ? [pts[pts.length - 1]!, ...projPts] : projPts;
+
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="h-16 w-full" preserveAspectRatio="none">
       <polyline
-        points={`0,${h} ${pts.join(" ")} ${w},${h}`}
+        points={`0,${h} ${pts.join(" ")} ${x(data.length - 1).toFixed(1)},${h}`}
         fill={stroke}
-        opacity="0.1"
+        opacity="0.12"
         stroke="none"
       />
       <polyline
@@ -220,7 +263,19 @@ export function Sparkline({
         strokeWidth="1.5"
         strokeLinejoin="round"
         vectorEffect="non-scaling-stroke"
+        className="transition-[stroke] duration-500"
       />
+      {join.length > 1 && (
+        <polyline
+          points={join.join(" ")}
+          fill="none"
+          stroke={rising ? "var(--bio)" : "var(--warn)"}
+          strokeWidth="1.2"
+          strokeDasharray="3 3"
+          opacity="0.8"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
     </svg>
   );
 }
