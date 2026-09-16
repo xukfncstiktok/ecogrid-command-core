@@ -43,6 +43,12 @@ export interface MissionState {
   matched: number;
   history: { t: number; health: number; carbon: number }[];
   eventSeq: number;
+  /** autonomous AI command override */
+  auto: boolean;
+  /** recovery momentum — positive after countermeasures, decays over time */
+  momentum: number;
+  /** last strike target for the 3D vector flash */
+  strike: { id: string; seq: number } | null;
 }
 
 export type Status = "stable" | "strained" | "critical";
@@ -98,13 +104,20 @@ function init(): MissionState {
     matched: 0,
     history: [],
     eventSeq: 1,
+    auto: false,
+    momentum: 0,
+    strike: null,
   };
 }
 
 type Action =
   | { type: "tick" }
   | { type: "select"; id: string }
-  | { type: "deploy"; intervention: InterventionId }
+  | { type: "deploy"; intervention: InterventionId; regionId?: string; auto?: boolean }
+  | { type: "setAuto"; value: boolean }
+  | { type: "autoRun" }
+  | { type: "log"; level: MissionEvent["level"]; source: string; text: string }
+  | { type: "clearLog" }
   | { type: "toggle" }
   | { type: "reset" };
 
@@ -141,6 +154,82 @@ const INCIDENTS: Record<string, string[]> = {
   ],
 };
 
+/** shared deploy resolution — used by manual clicks, the CLI and the autonomous agent */
+function applyDeploy(
+  state: MissionState,
+  planId: InterventionId,
+  regionId: string,
+  auto: boolean,
+): MissionState {
+  const plan = INTERVENTIONS.find((i) => i.id === planId);
+  const region = state.regions.find((r) => r.id === regionId);
+  if (!plan || !region) return state;
+  if (state.cooldowns[plan.id] > 0 || state.credits < plan.cost) return state;
+
+  const matched = plan.counters.includes(region.threat);
+  const efficacy = (matched ? 0.55 : 0.16) * (1 + region.intensity * 0.5);
+  const bump = plan.power * efficacy;
+  const cover = matched ? 0.85 : 0.3;
+  const intensityDrop = matched ? 0.35 + region.intensity * 0.2 : 0.08;
+  const offset = region.carbonAtRisk * cover * (matched ? 0.09 : 0.02);
+
+  const regions = state.regions.map((r) =>
+    r.id === region.id
+      ? {
+          ...r,
+          health: Math.min(100, r.health + bump),
+          mitigation: Math.min(1, r.mitigation + cover),
+          intensity: Math.max(0, r.intensity - intensityDrop),
+          alerts: matched ? 0 : Math.max(0, r.alerts - 1),
+          secured: r.secured + offset,
+          lastAction: plan.id,
+          flash: 4,
+        }
+      : r,
+  );
+
+  // recovery momentum drives the positive deflection of the trend curve
+  const gain = (bump / 14) * (matched ? 1.35 : 0.5);
+  const carbonSecured = state.carbonSecured + offset;
+
+  let next: MissionState = {
+    ...state,
+    credits: state.credits - plan.cost,
+    deployments: state.deployments + 1,
+    matched: state.matched + (matched ? 1 : 0),
+    carbonSecured,
+    cooldowns: { ...state.cooldowns, [plan.id]: plan.cooldown },
+    regions,
+    momentum: Math.min(6, state.momentum + gain),
+    strike: { id: region.id, seq: (state.strike?.seq ?? 0) + 1 },
+    // instant deflection: the curve reacts on the same frame as the deploy
+    history: [
+      ...state.history,
+      { t: state.tick, health: globalHealth(regions), carbon: carbonSecured },
+    ].slice(-70),
+  };
+
+  next = pushEvent(next, {
+    level: matched ? "good" : "warn",
+    source: auto ? `AUTO·${region.code}` : region.code,
+    text: matched
+      ? `${auto ? "Autonomous override: " : ""}${plan.name} deployed over ${region.name} — matched to ${THREAT_LABEL[region.threat].toLowerCase()}: +${bump.toFixed(1)} integrity, +${offset.toFixed(1)} Mt CO₂e secured.`
+      : `${auto ? "Autonomous override: " : ""}${plan.name} deployed over ${region.name} — poor fit for ${THREAT_LABEL[region.threat].toLowerCase()}: only +${bump.toFixed(1)} integrity.`,
+  });
+  return next;
+}
+
+/** heuristic threat ranking used by the advisor, the CLI and the autonomous agent */
+export function riskScore(r: RegionState) {
+  return (
+    (100 - r.health) * 0.9 +
+    r.intensity * 45 +
+    r.carbonAtRisk * 0.22 +
+    r.alerts * 6 -
+    r.mitigation * 40
+  );
+}
+
 function reducer(state: MissionState, action: Action): MissionState {
   switch (action.type) {
     case "toggle":
@@ -149,6 +238,54 @@ function reducer(state: MissionState, action: Action): MissionState {
       return init();
     case "select":
       return { ...state, selected: action.id };
+    case "setAuto": {
+      if (state.auto === action.value) return state;
+      return pushEvent({ ...state, auto: action.value }, {
+        level: action.value ? "good" : "info",
+        source: "AUTO-AI",
+        text: action.value
+          ? "Auto-AI command override engaged — heuristic agent now selecting countermeasures every 4s."
+          : "Auto-AI command override released — manual control restored.",
+      });
+    }
+    case "log":
+      return pushEvent(state, {
+        level: action.level,
+        source: action.source,
+        text: action.text,
+      });
+    case "clearLog":
+      return {
+        ...state,
+        events: [
+          {
+            id: state.eventSeq,
+            tick: state.tick,
+            level: "info",
+            source: "CLI",
+            text: "Telemetry buffer cleared.",
+          },
+        ],
+        eventSeq: state.eventSeq + 1,
+      };
+    case "autoRun": {
+      if (!state.auto || !state.running) return state;
+      // rank live threats, then take the best affordable, off-cooldown counter
+      const ranked = [...state.regions].sort((a, b) => riskScore(b) - riskScore(a));
+      for (const target of ranked.slice(0, 6)) {
+        if (target.mitigation > 0.55) continue;
+        const counters = INTERVENTIONS.filter(
+          (i) =>
+            i.counters.includes(target.threat) &&
+            state.cooldowns[i.id] === 0 &&
+            state.credits >= i.cost,
+        ).sort((a, b) => b.power - a.power);
+        const plan = counters[0];
+        if (!plan) continue;
+        return applyDeploy({ ...state, selected: target.id }, plan.id, target.id, true);
+      }
+      return state;
+    }
     case "tick": {
       const tick = state.tick + 1;
       // global escalation term: unmanaged time makes every threat compound
@@ -189,6 +326,7 @@ function reducer(state: MissionState, action: Action): MissionState {
         tick,
         regions,
         carbonSecured,
+        momentum: Math.max(0, state.momentum * 0.9 - 0.02),
         credits: Math.min(state.maxCredits, state.credits + 3.5),
         cooldowns: {
           drone: Math.max(0, state.cooldowns.drone - 1),
@@ -256,52 +394,37 @@ function reducer(state: MissionState, action: Action): MissionState {
       }
       return next;
     }
-    case "deploy": {
-      const plan = INTERVENTIONS.find((i) => i.id === action.intervention)!;
-      const region = state.regions.find((r) => r.id === state.selected)!;
-      if (state.cooldowns[plan.id] > 0 || state.credits < plan.cost) return state;
-      const matched = plan.counters.includes(region.threat);
-      // efficacy scales with fit and with how hot the threat currently runs
-      const efficacy = (matched ? 0.55 : 0.16) * (1 + region.intensity * 0.5);
-      const bump = plan.power * efficacy;
-      const cover = matched ? 0.85 : 0.3;
-      const intensityDrop = matched ? 0.35 + region.intensity * 0.2 : 0.08;
-      // immediate carbon offset injected into the pool
-      const offset = (region.carbonAtRisk * cover * (matched ? 0.09 : 0.02));
-      let next: MissionState = {
-        ...state,
-        credits: state.credits - plan.cost,
-        deployments: state.deployments + 1,
-        matched: state.matched + (matched ? 1 : 0),
-        carbonSecured: state.carbonSecured + offset,
-        cooldowns: { ...state.cooldowns, [plan.id]: plan.cooldown },
-        regions: state.regions.map((r) =>
-          r.id === region.id
-            ? {
-                ...r,
-                health: Math.min(100, r.health + bump),
-                mitigation: Math.min(1, r.mitigation + cover),
-                intensity: Math.max(0, r.intensity - intensityDrop),
-                alerts: matched ? 0 : Math.max(0, r.alerts - 1),
-                secured: r.secured + offset,
-                lastAction: plan.id,
-                flash: 4,
-              }
-            : r,
-        ),
-      };
-      next = pushEvent(next, {
-        level: matched ? "good" : "warn",
-        source: region.code,
-        text: matched
-          ? `${plan.name} deployed over ${region.name} — matched to ${THREAT_LABEL[region.threat].toLowerCase()}: +${bump.toFixed(1)} integrity, +${offset.toFixed(1)} Mt CO₂e secured.`
-          : `${plan.name} deployed over ${region.name} — poor fit for ${THREAT_LABEL[region.threat].toLowerCase()}: only +${bump.toFixed(1)} integrity.`,
-      });
-      return next;
-    }
+    case "deploy":
+      return applyDeploy(
+        state,
+        action.intervention,
+        action.regionId ?? state.selected,
+        action.auto ?? false,
+      );
     default:
       return state;
   }
+}
+
+/** forward stabilisation curve projected from current recovery momentum */
+export function projectTrend(
+  history: { t: number; health: number }[],
+  momentum: number,
+  steps = 14,
+) {
+  const last = history[history.length - 1];
+  if (!last) return [];
+  // baseline drift when nothing is holding the threats back
+  const drift = -0.55;
+  let h = last.health;
+  let m = momentum;
+  const out: { t: number; health: number }[] = [];
+  for (let i = 1; i <= steps; i++) {
+    m *= 0.88;
+    h = Math.max(4, Math.min(100, h + m * 1.8 + drift));
+    out.push({ t: last.t + i, health: h });
+  }
+  return out;
 }
 
 export function useMission() {
@@ -316,14 +439,29 @@ export function useMission() {
     return () => clearInterval(id);
   }, []);
 
+  // --- autonomous AI agent loop: evaluates every active threat every 4s ----
+  useEffect(() => {
+    if (!state.auto) return;
+    const id = setInterval(() => dispatch({ type: "autoRun" }), 4000);
+    return () => clearInterval(id);
+  }, [state.auto]);
+
   const selected = state.regions.find((r) => r.id === state.selected)!;
   const health = useMemo(() => globalHealth(state.regions), [state.regions]);
+  const projection = useMemo(
+    () => projectTrend(state.history, state.momentum),
+    [state.history, state.momentum],
+  );
+  const trend = useMemo(() => {
+    const h = state.history;
+    if (h.length < 3) return state.momentum > 0.2 ? 1 : 0;
+    const span = h.slice(-6);
+    const slope = (span[span.length - 1]!.health - span[0]!.health) / (span.length - 1);
+    return slope + state.momentum * 1.2;
+  }, [state.history, state.momentum]);
+
   const advisory = useMemo(() => {
-    // risk score: low integrity + hot threat + big carbon exposure, minus coverage
-    const score = (r: RegionState) =>
-      (100 - r.health) * 0.9 + r.intensity * 45 + r.carbonAtRisk * 0.22 + r.alerts * 6 -
-      r.mitigation * 40;
-    const ranked = [...state.regions].sort((a, b) => score(b) - score(a));
+    const ranked = [...state.regions].sort((a, b) => riskScore(b) - riskScore(a));
     const target = ranked[0]!;
     const plan = INTERVENTIONS.find((i) => i.counters.includes(target.threat)) ?? INTERVENTIONS[0]!;
     return { target, plan };
@@ -340,12 +478,26 @@ export function useMission() {
     state,
     selected,
     health,
+    trend,
+    projection,
     advisory,
     criticals,
     covered,
     activeThreats,
     select: useCallback((id: string) => dispatch({ type: "select", id }), []),
     deploy: useCallback((i: InterventionId) => dispatch({ type: "deploy", intervention: i }), []),
+    deployAt: useCallback(
+      (i: InterventionId, regionId: string) =>
+        dispatch({ type: "deploy", intervention: i, regionId }),
+      [],
+    ),
+    setAuto: useCallback((value: boolean) => dispatch({ type: "setAuto", value }), []),
+    log: useCallback(
+      (text: string, level: MissionEvent["level"] = "info", source = "CLI") =>
+        dispatch({ type: "log", level, source, text }),
+      [],
+    ),
+    clearLog: useCallback(() => dispatch({ type: "clearLog" }), []),
     toggle: useCallback(() => dispatch({ type: "toggle" }), []),
     reset: useCallback(() => dispatch({ type: "reset" }), []),
   };
