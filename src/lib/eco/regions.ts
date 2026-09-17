@@ -1,6 +1,30 @@
 export type ThreatType = "deforestation" | "emissions" | "drought" | "reefBleaching" | "permafrost";
 
-export type InterventionId = "drone" | "grid" | "corridor" | "cloud";
+export type InterventionId =
+  | "drone"
+  | "grid"
+  | "corridor"
+  | "cloud"
+  | "firebreak"
+  | "biochar"
+  | "mangrove"
+  | "rewild"
+  | "solar"
+  | "wind"
+  | "methane"
+  | "storage"
+  | "aquifer"
+  | "desal"
+  | "wetland"
+  | "irrigation"
+  | "shade"
+  | "nursery"
+  | "kelp"
+  | "alkalinity"
+  | "reflector"
+  | "thermosyphon"
+  | "capture"
+  | "satellite";
 
 export interface RegionSeed {
   id: string;
@@ -75,6 +99,186 @@ export const INTERVENTIONS: Intervention[] = [
     cost: 26,
     cooldown: 10,
     power: 13,
+  },
+  {
+    id: "firebreak",
+    name: "Firebreak Mesh",
+    tagline: "Autonomous cutters isolate advancing fire fronts",
+    counters: ["deforestation", "drought"],
+    cost: 18,
+    cooldown: 7,
+    power: 11,
+  },
+  {
+    id: "biochar",
+    name: "Biochar Kilns",
+    tagline: "Lock waste biomass into stable soil carbon",
+    counters: ["deforestation", "emissions"],
+    cost: 22,
+    cooldown: 8,
+    power: 12,
+  },
+  {
+    id: "mangrove",
+    name: "Mangrove Shield",
+    tagline: "Restore living coastal storm barriers",
+    counters: ["reefBleaching", "deforestation"],
+    cost: 21,
+    cooldown: 8,
+    power: 13,
+  },
+  {
+    id: "rewild",
+    name: "Rewilding Convoy",
+    tagline: "Reconnect habitat and restore keystone species",
+    counters: ["deforestation", "drought"],
+    cost: 25,
+    cooldown: 10,
+    power: 15,
+  },
+  {
+    id: "solar",
+    name: "Solar Bloom",
+    tagline: "Deploy modular photovoltaic fields",
+    counters: ["emissions"],
+    cost: 23,
+    cooldown: 8,
+    power: 14,
+  },
+  {
+    id: "wind",
+    name: "Wind Array",
+    tagline: "Raise high-output distributed turbines",
+    counters: ["emissions"],
+    cost: 24,
+    cooldown: 9,
+    power: 15,
+  },
+  {
+    id: "methane",
+    name: "Methane Seal",
+    tagline: "Locate and cap high-volume fugitive plumes",
+    counters: ["emissions", "permafrost"],
+    cost: 19,
+    cooldown: 7,
+    power: 12,
+  },
+  {
+    id: "storage",
+    name: "Storage Pulse",
+    tagline: "Buffer renewable power across peak demand",
+    counters: ["emissions"],
+    cost: 28,
+    cooldown: 10,
+    power: 16,
+  },
+  {
+    id: "aquifer",
+    name: "Aquifer Recharge",
+    tagline: "Route seasonal flow into depleted groundwater",
+    counters: ["drought"],
+    cost: 22,
+    cooldown: 8,
+    power: 14,
+  },
+  {
+    id: "desal",
+    name: "Solar Desal",
+    tagline: "Produce freshwater with zero-carbon heat",
+    counters: ["drought"],
+    cost: 29,
+    cooldown: 11,
+    power: 17,
+  },
+  {
+    id: "wetland",
+    name: "Wetland Restore",
+    tagline: "Rebuild natural water retention basins",
+    counters: ["drought", "deforestation"],
+    cost: 20,
+    cooldown: 8,
+    power: 13,
+  },
+  {
+    id: "irrigation",
+    name: "Precision Irrigation",
+    tagline: "Target roots with sensor-guided water delivery",
+    counters: ["drought"],
+    cost: 17,
+    cooldown: 6,
+    power: 10,
+  },
+  {
+    id: "shade",
+    name: "Reef Shade Fleet",
+    tagline: "Surface canopies reduce peak thermal stress",
+    counters: ["reefBleaching"],
+    cost: 24,
+    cooldown: 9,
+    power: 15,
+  },
+  {
+    id: "nursery",
+    name: "Coral Nursery",
+    tagline: "Seed heat-tolerant coral colonies at scale",
+    counters: ["reefBleaching"],
+    cost: 26,
+    cooldown: 10,
+    power: 16,
+  },
+  {
+    id: "kelp",
+    name: "Kelp Forest",
+    tagline: "Anchor marine habitat and coastal carbon sinks",
+    counters: ["reefBleaching", "emissions"],
+    cost: 18,
+    cooldown: 7,
+    power: 12,
+  },
+  {
+    id: "alkalinity",
+    name: "Ocean Buffer",
+    tagline: "Restore local carbonate chemistry balance",
+    counters: ["reefBleaching", "emissions"],
+    cost: 30,
+    cooldown: 12,
+    power: 18,
+  },
+  {
+    id: "reflector",
+    name: "Albedo Mesh",
+    tagline: "Increase surface reflectivity over thaw zones",
+    counters: ["permafrost"],
+    cost: 21,
+    cooldown: 8,
+    power: 13,
+  },
+  {
+    id: "thermosyphon",
+    name: "Thermosyphon Field",
+    tagline: "Draw heat from vulnerable frozen ground",
+    counters: ["permafrost"],
+    cost: 27,
+    cooldown: 10,
+    power: 17,
+  },
+  {
+    id: "capture",
+    name: "Carbon Capture Hub",
+    tagline: "Mineralize concentrated industrial carbon",
+    counters: ["emissions", "permafrost"],
+    cost: 32,
+    cooldown: 12,
+    power: 19,
+  },
+  {
+    id: "satellite",
+    name: "Sentinel Uplink",
+    tagline: "Retask orbital sensors for precision response",
+    counters: ["deforestation", "emissions", "drought", "reefBleaching", "permafrost"],
+    cost: 16,
+    cooldown: 6,
+    power: 9,
   },
 ];
 

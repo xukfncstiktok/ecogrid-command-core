@@ -417,7 +417,7 @@ export function CommandDeck({
         </div>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-4">
         {INTERVENTIONS.map((plan) => {
           const cd = cooldowns[plan.id];
           const matched = plan.counters.includes(regionThreat);
@@ -480,7 +480,7 @@ const feedTone: Record<MissionEvent["level"], string> = {
 
 export function EventFeed({ events }: { events: MissionEvent[] }) {
   return (
-    <ul className="h-full space-y-1.5 overflow-y-auto pr-1">
+    <ul className="h-40 space-y-1.5 overflow-y-auto pr-1 xl:h-44">
       {events.map((e) => (
         <li key={e.id} className="animate-eco-rise text-[0.72rem] leading-snug">
           <span className="numeric mr-2 text-[0.65rem] text-muted-foreground/70">
