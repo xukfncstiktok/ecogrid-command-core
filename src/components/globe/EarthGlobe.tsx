@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { InterventionId } from "@/lib/eco/regions";
 import type { RegionState } from "@/lib/eco/mission";
 import { statusOf } from "@/lib/eco/mission";
 
@@ -7,7 +8,7 @@ interface Props {
   selected: string;
   onSelect: (id: string) => void;
   /** increments on every deployment — triggers a glowing vector strike */
-  strike?: { id: string; seq: number } | null;
+  strike?: { id: string; intervention: InterventionId; seq: number } | null;
 }
 
 interface MarkerHandle {
@@ -15,6 +16,13 @@ interface MarkerHandle {
   core: any;
   ring: any;
   group: any;
+}
+
+interface DeploymentHandle {
+  line: any;
+  halo: any;
+  model: any;
+  born: number;
 }
 
 const toVec = (lat: number, lon: number, r: number, THREE: any) => {
@@ -327,10 +335,156 @@ export function EarthGlobe({ regions, selected, onSelect, strike = null }: Props
       const colSel = new THREE.Color(0x8ef0ff);
 
       // --- deployment vector strikes ---------------------------------------
-      const strikes: { line: any; halo: any; born: number }[] = [];
+      const strikes: DeploymentHandle[] = [];
       let lastStrikeSeq = dataRef.current.strike?.seq ?? 0;
 
-      const spawnStrike = (id: string) => {
+      const createDeploymentModel = (intervention: InterventionId) => {
+        const model = new THREE.Group();
+        const bright = new THREE.MeshBasicMaterial({ color: 0x8ef0ff });
+        const green = new THREE.MeshBasicMaterial({ color: 0x63e6a8 });
+        const amber = new THREE.MeshBasicMaterial({ color: 0xf2b544 });
+        const pale = new THREE.MeshBasicMaterial({ color: 0xdaf7ff, transparent: true, opacity: 0.86 });
+        const dark = new THREE.MeshBasicMaterial({ color: 0x21465b });
+        const add = (geometry: any, material: any, x: number, y: number, z: number) => {
+          const mesh = new THREE.Mesh(geometry, material);
+          mesh.position.set(x, y, z);
+          model.add(mesh);
+          return mesh;
+        };
+        const forest = () => {
+          for (let i = -2; i <= 2; i++) {
+            add(new THREE.CylinderGeometry(0.012, 0.018, 0.1, 6), amber, i * 0.075, 0, -0.08);
+            add(new THREE.ConeGeometry(0.045, 0.11, 7), green, i * 0.075, 0, -0.16);
+          }
+        };
+        const array = (material = bright) => {
+          for (let x = -1; x <= 1; x++) {
+            for (let y = -1; y <= 1; y++) {
+              const tile = add(new THREE.BoxGeometry(0.07, 0.045, 0.012), material, x * 0.085, y * 0.06, -0.08);
+              tile.rotation.x = 0.25;
+            }
+          }
+        };
+        const towers = (blades = false) => {
+          for (let i = -1; i <= 1; i++) {
+            add(new THREE.CylinderGeometry(0.009, 0.014, 0.18, 6), pale, i * 0.12, 0, -0.12);
+            if (blades) {
+              const hub = add(new THREE.SphereGeometry(0.018, 8, 8), bright, i * 0.12, 0, -0.23);
+              for (let b = 0; b < 3; b++) {
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.085, 0.008), pale);
+                blade.position.y = 0.045;
+                blade.rotation.z = (b * Math.PI * 2) / 3;
+                hub.add(blade);
+              }
+            }
+          }
+        };
+        const fleet = () => {
+          for (let i = 0; i < 7; i++) {
+            const angle = (i / 7) * Math.PI * 2;
+            const craft = add(
+              new THREE.OctahedronGeometry(0.028, 0),
+              i % 2 ? bright : green,
+              Math.cos(angle) * 0.17,
+              Math.sin(angle) * 0.17,
+              -0.12,
+            );
+            craft.rotation.z = angle;
+          }
+        };
+        const water = () => {
+          for (let i = -2; i <= 2; i++) {
+            const drop = add(new THREE.SphereGeometry(0.026, 8, 8), bright, i * 0.065, 0.1, -0.1);
+            drop.scale.set(0.7, 1.5, 0.7);
+          }
+          model.add(new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.012, 8, 40), pale));
+        };
+        const marine = () => {
+          const reef = add(new THREE.TorusGeometry(0.17, 0.025, 8, 28), green, 0, 0, -0.08);
+          reef.scale.y = 0.65;
+          for (let i = -2; i <= 2; i++) {
+            const stem = add(new THREE.CylinderGeometry(0.009, 0.014, 0.13, 6), bright, i * 0.06, 0, -0.13);
+            stem.rotation.z = i * 0.08;
+          }
+        };
+        const industrial = () => {
+          towers(false);
+          add(new THREE.TorusGeometry(0.13, 0.025, 8, 30), bright, 0, 0, -0.08);
+          add(new THREE.BoxGeometry(0.19, 0.08, 0.07), dark, 0, -0.09, -0.11);
+        };
+
+        switch (intervention) {
+          case "drone":
+          case "rewild":
+            fleet();
+            forest();
+            break;
+          case "corridor":
+          case "firebreak":
+            model.add(new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.018, 8, 48), bright));
+            forest();
+            break;
+          case "biochar":
+          case "capture":
+          case "methane":
+            industrial();
+            break;
+          case "mangrove":
+          case "wetland":
+            water();
+            forest();
+            break;
+          case "grid":
+          case "storage":
+            array(amber);
+            model.add(new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.01, 8, 48), bright));
+            break;
+          case "solar":
+          case "reflector":
+            array(intervention === "solar" ? bright : pale);
+            break;
+          case "wind":
+          case "thermosyphon":
+            towers(intervention === "wind");
+            break;
+          case "cloud":
+            for (let i = -2; i <= 2; i++)
+              add(new THREE.SphereGeometry(0.065, 10, 8), pale, i * 0.07, Math.abs(i) * -0.014, -0.12);
+            water();
+            break;
+          case "aquifer":
+          case "desal":
+          case "irrigation":
+            water();
+            array(green);
+            break;
+          case "shade":
+          case "nursery":
+          case "kelp":
+          case "alkalinity":
+            marine();
+            if (intervention === "shade") array(pale);
+            break;
+          case "satellite": {
+            add(new THREE.BoxGeometry(0.11, 0.07, 0.06), pale, 0, 0, -0.26);
+            add(new THREE.BoxGeometry(0.25, 0.055, 0.012), bright, 0.18, 0, -0.26);
+            add(new THREE.BoxGeometry(0.25, 0.055, 0.012), bright, -0.18, 0, -0.26);
+            model.add(new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.009, 8, 40), green));
+            break;
+          }
+        }
+        return model;
+      };
+
+      const disposeObject = (object: any) => {
+        object.traverse((child: any) => {
+          child.geometry?.dispose?.();
+          if (Array.isArray(child.material)) child.material.forEach((m: any) => m.dispose?.());
+          else child.material?.dispose?.();
+        });
+      };
+
+      const spawnStrike = (id: string, intervention: InterventionId) => {
         const r = dataRef.current.regions.find((x) => x.id === id);
         if (!r) return;
         const surface = toVec(r.lat, r.lon, R * 1.02, THREE);
@@ -359,16 +513,34 @@ export function EarthGlobe({ regions, selected, onSelect, strike = null }: Props
         );
         halo.position.copy(surface);
         halo.lookAt(new THREE.Vector3(0, 0, 0));
-        world.add(line, halo);
-        strikes.push({ line, halo, born: performance.now() });
+        const model = createDeploymentModel(intervention);
+        model.position.copy(surface.clone().multiplyScalar(1.025));
+        model.lookAt(new THREE.Vector3(0, 0, 0));
+        model.scale.setScalar(0.01);
+        world.add(line, halo, model);
+        strikes.push({ line, halo, model, born: performance.now() });
+        while (strikes.length > 4) {
+          const oldest = strikes.shift();
+          if (!oldest) break;
+          world.remove(oldest.line, oldest.halo, oldest.model);
+          oldest.line.geometry.dispose();
+          oldest.line.material.dispose();
+          oldest.halo.geometry.dispose();
+          oldest.halo.material.dispose();
+          disposeObject(oldest.model);
+        }
       };
 
       let raf = 0;
       let t = 0;
+      let previousFrame = performance.now();
       const render = () => {
         raf = requestAnimationFrame(render);
-        t += 0.016;
-        if (!dragging) rotY += spin;
+        const frameNow = performance.now();
+        const delta = Math.min((frameNow - previousFrame) / 1000, 0.05);
+        previousFrame = frameNow;
+        t += delta;
+        if (!dragging) rotY += spin * delta * 60;
         world.rotation.y = rotY;
         world.rotation.x = rotX;
         camera.position.z += (targetZoom - camera.position.z) * 0.08;
@@ -400,24 +572,30 @@ export function EarthGlobe({ regions, selected, onSelect, strike = null }: Props
         const seq = dataRef.current.strike?.seq ?? 0;
         if (seq > lastStrikeSeq) {
           lastStrikeSeq = seq;
-          spawnStrike(dataRef.current.strike!.id);
+          const latest = dataRef.current.strike;
+          if (latest) spawnStrike(latest.id, latest.intervention);
         }
         const now = performance.now();
         for (let i = strikes.length - 1; i >= 0; i--) {
           const s = strikes[i]!;
-          const k = (now - s.born) / 1400;
+          const k = (now - s.born) / 3600;
           if (k >= 1) {
-            world.remove(s.line, s.halo);
+            world.remove(s.line, s.halo, s.model);
             s.line.geometry.dispose();
             s.line.material.dispose();
             s.halo.geometry.dispose();
             s.halo.material.dispose();
+            disposeObject(s.model);
             strikes.splice(i, 1);
             continue;
           }
-          s.line.material.opacity = Math.max(0, 1 - k) * (0.6 + 0.4 * Math.sin(k * 40));
-          s.halo.scale.setScalar(1 + k * 3.4);
-          s.halo.material.opacity = Math.max(0, 0.9 * (1 - k));
+          const arrive = Math.min(1, k * 5);
+          const fade = k < 0.72 ? 1 : 1 - (k - 0.72) / 0.28;
+          s.line.material.opacity = Math.max(0, 1 - k * 1.5) * (0.6 + 0.4 * Math.sin(k * 40));
+          s.halo.scale.setScalar(1 + k * 4.2);
+          s.halo.material.opacity = Math.max(0, 0.9 * (1 - k * 1.4));
+          s.model.scale.setScalar((0.15 + arrive * 0.85) * Math.max(0, fade));
+          s.model.rotation.z = Math.sin(k * Math.PI * 5) * 0.08;
         }
 
         renderer.render(scene, camera);
@@ -426,7 +604,10 @@ export function EarthGlobe({ regions, selected, onSelect, strike = null }: Props
 
       cleanup = () => {
         cancelAnimationFrame(raf);
-        for (const s of strikes) world.remove(s.line, s.halo);
+        for (const s of strikes) {
+          world.remove(s.line, s.halo, s.model);
+          disposeObject(s.model);
+        }
         ro.disconnect();
         el.removeEventListener("pointerdown", onDown);
         window.removeEventListener("pointermove", onMove);
