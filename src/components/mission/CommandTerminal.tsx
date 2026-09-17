@@ -17,10 +17,37 @@ const PLAN_ALIASES: Record<string, InterventionId> = {
   cloud: "cloud",
   seed: "cloud",
   seeding: "cloud",
+  firebreak: "firebreak",
+  fire: "firebreak",
+  biochar: "biochar",
+  mangrove: "mangrove",
+  rewild: "rewild",
+  solar: "solar",
+  wind: "wind",
+  methane: "methane",
+  storage: "storage",
+  battery: "storage",
+  aquifer: "aquifer",
+  desal: "desal",
+  wetland: "wetland",
+  irrigation: "irrigation",
+  shade: "shade",
+  nursery: "nursery",
+  coral: "nursery",
+  kelp: "kelp",
+  alkalinity: "alkalinity",
+  buffer: "alkalinity",
+  reflector: "reflector",
+  albedo: "reflector",
+  thermosyphon: "thermosyphon",
+  capture: "capture",
+  satellite: "satellite",
+  uplink: "satellite",
 };
 
 const HELP = [
-  "deploy <swarm|grid|corridor|cloud> <sector_id>   deploy a countermeasure",
+  "deploy <action> <sector_id>                     deploy a countermeasure",
+  "actions                                         list all 24 action ids",
   "status --global                                  global integrity readout",
   "status <sector_id>                               single sector readout",
   "override --auto=true|false                       autonomous AI command override",
@@ -93,6 +120,11 @@ export function CommandTerminal(api: TerminalApi) {
           push("out", `${r.id.padEnd(10)} ${r.code.padEnd(8)} ${r.name} · ${r.health.toFixed(0)}%`),
         );
         return;
+      case "actions":
+        INTERVENTIONS.forEach((plan) =>
+          push("out", `${plan.id.padEnd(14)} ${plan.name} · ${plan.cost} cr`),
+        );
+        return;
       case "focus": {
         const r = findRegion(args[0]);
         if (!r) return push("err", `unknown sector: ${args[0] ?? "<none>"}`);
@@ -131,7 +163,8 @@ export function CommandTerminal(api: TerminalApi) {
           return push("err", `unknown countermeasure: ${args[0] ?? "<none>"} (swarm|grid|corridor|cloud)`);
         const r = findRegion(args[1]);
         if (!r) return push("err", `unknown sector: ${args[1] ?? "<none>"}`);
-        const plan = INTERVENTIONS.find((i) => i.id === planId)!;
+        const plan = INTERVENTIONS.find((i) => i.id === planId);
+        if (!plan) return push("err", `countermeasure unavailable: ${planId}`);
         if (api.credits < plan.cost)
           return push("err", `insufficient credits: ${plan.cost} required, ${api.credits.toFixed(0)} available`);
         api.deployAt(planId, r.id);

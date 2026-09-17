@@ -48,7 +48,7 @@ export interface MissionState {
   /** recovery momentum — positive after countermeasures, decays over time */
   momentum: number;
   /** last strike target for the 3D vector flash */
-  strike: { id: string; seq: number } | null;
+  strike: { id: string; intervention: InterventionId; seq: number } | null;
 }
 
 export type Status = "stable" | "strained" | "critical";
@@ -88,7 +88,10 @@ function init(): MissionState {
       alerts: 0,
       flash: 0,
     })),
-    cooldowns: { drone: 0, grid: 0, corridor: 0, cloud: 0 },
+    cooldowns: Object.fromEntries(INTERVENTIONS.map((plan) => [plan.id, 0])) as Record<
+      InterventionId,
+      number
+    >,
     events: [
       {
         id: 0,
@@ -201,7 +204,7 @@ function applyDeploy(
     cooldowns: { ...state.cooldowns, [plan.id]: plan.cooldown },
     regions,
     momentum: Math.min(6, state.momentum + gain),
-    strike: { id: region.id, seq: (state.strike?.seq ?? 0) + 1 },
+    strike: { id: region.id, intervention: plan.id, seq: (state.strike?.seq ?? 0) + 1 },
     // instant deflection: the curve reacts on the same frame as the deploy
     history: [
       ...state.history,
@@ -328,12 +331,12 @@ function reducer(state: MissionState, action: Action): MissionState {
         carbonSecured,
         momentum: Math.max(0, state.momentum * 0.9 - 0.02),
         credits: Math.min(state.maxCredits, state.credits + 3.5),
-        cooldowns: {
-          drone: Math.max(0, state.cooldowns.drone - 1),
-          grid: Math.max(0, state.cooldowns.grid - 1),
-          corridor: Math.max(0, state.cooldowns.corridor - 1),
-          cloud: Math.max(0, state.cooldowns.cloud - 1),
-        },
+        cooldowns: Object.fromEntries(
+          INTERVENTIONS.map((plan) => [
+            plan.id,
+            Math.max(0, (state.cooldowns[plan.id] ?? 0) - 1),
+          ]),
+        ) as Record<InterventionId, number>,
         history: [
           ...state.history,
           { t: tick, health: globalHealth(regions), carbon: carbonSecured },

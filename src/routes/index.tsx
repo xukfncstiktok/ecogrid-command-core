@@ -191,7 +191,7 @@ function Index() {
               <Panel
                 title="Telemetry feed"
                 right={<Icons.Activity className="size-3.5 text-accent" />}
-                className="h-[260px] xl:flex-1"
+                className="h-[218px]"
                 bodyClass="p-3"
               >
                 <EventFeed events={state.events} />
